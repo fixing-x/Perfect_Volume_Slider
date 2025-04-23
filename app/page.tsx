@@ -1,4 +1,4 @@
-import ExponentialCurveVisualization from "@/components/volume_control"
+import ExponentialCurveVisualization from "@/components/VolumeControl"
 
 export default function Home() {
   return (

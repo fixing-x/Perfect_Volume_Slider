@@ -144,7 +144,7 @@ export default function SmartVolume() {
 
   // Initialize audio
   useEffect(() => {
-    audioRef.current = new Audio("/HopeNF.mp3")
+    audioRef.current = new Audio("/stream.mp4")
 
     const audio = audioRef.current
 
@@ -869,7 +869,7 @@ export default function SmartVolume() {
 
                 <div className="flex flex-col">
                   <span className="text-sm font-medium text-gray-700 dark:text-white flex items-center gap-1.5">
-                    <Music className="h-3.5 w-3.5" /> Hope by NF
+                    <Music className="h-3.5 w-3.5" /> Never Let You Go by My Buddy Mike
                   </span>
                   <div className="text-xs text-gray-500 dark:text-gray-400">
                     {formatTime(audioTime)} / {formatTime(audioDuration || 0)}
