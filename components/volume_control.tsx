@@ -23,6 +23,7 @@ export default function SmartVolume() {
   const gainNodeRef = useRef<GainNode | null>(null)
   const preampNodeRef = useRef<GainNode | null>(null)
   const filterNodesRef = useRef<BiquadFilterNode[]>([])
+  const seekIntervalRef = useRef<NodeJS.Timeout | null>(null)
   const [isPlaying, setIsPlaying] = useState(false)
   const [isMuted, setIsMuted] = useState(false)
   const [audioTime, setAudioTime] = useState(0)
@@ -214,7 +215,7 @@ export default function SmartVolume() {
       
       console.log("Audio nodes connected:", source.channelCount, "channels")
       
-      // Resume audio context to ensure it's in running state (needed for some browsers)
+      // Resume Audio Context if needed (browser autoplay policy)
       if (context.state === 'suspended') {
         context.resume().then(() => {
           console.log("AudioContext resumed successfully")
@@ -224,9 +225,10 @@ export default function SmartVolume() {
       console.error("Web Audio API initialization failed:", error)
     }
 
-    audio.addEventListener("timeupdate", () => {
-      setAudioTime(audio.currentTime)
-    })
+    // Comment out the standard timeupdate event in favor of our custom interval
+    // audio.addEventListener("timeupdate", () => {
+    //   setAudioTime(audio.currentTime)
+    // })
 
     audio.addEventListener("loadedmetadata", () => {
       setAudioDuration(audio.duration)
@@ -237,6 +239,11 @@ export default function SmartVolume() {
     })
 
     return () => {
+      // Clear interval on cleanup
+      if (seekIntervalRef.current) {
+        clearInterval(seekIntervalRef.current)
+      }
+      
       audio.pause()
       audio.src = ""
       
@@ -246,6 +253,29 @@ export default function SmartVolume() {
       }
     }
   }, [])
+
+  // Add a separate effect to handle the custom seek refresh rate
+  useEffect(() => {
+    // Clear any existing interval
+    if (seekIntervalRef.current) {
+      clearInterval(seekIntervalRef.current)
+      seekIntervalRef.current = null
+    }
+    
+    // Only set up interval if playing
+    if (isPlaying && audioRef.current) {
+      seekIntervalRef.current = setInterval(() => {
+        setAudioTime(audioRef.current?.currentTime || 0)
+      }, 1000) // Update every 1 second
+    }
+    
+    // Cleanup on unmount or when isPlaying changes
+    return () => {
+      if (seekIntervalRef.current) {
+        clearInterval(seekIntervalRef.current)
+      }
+    }
+  }, [isPlaying])
 
   // Toggle the equalizer on/off
   const toggleEqualizer = () => {
@@ -502,6 +532,26 @@ export default function SmartVolume() {
     return `${minutes}:${seconds < 10 ? "0" : ""}${seconds}`
   }
 
+  // Add seek function to control audio position
+  const handleSeek = (newTime: number) => {
+    if (!audioRef.current) return;
+    
+    // Clamp to valid range
+    const clampedTime = Math.min(Math.max(0, newTime), audioDuration || 0);
+    
+    // Set the audio's current time
+    audioRef.current.currentTime = clampedTime;
+    setAudioTime(clampedTime);
+  }
+  
+  // Function to seek forward/backward by specified seconds
+  const seekOffset = (offsetSeconds: number) => {
+    if (!audioRef.current) return;
+    
+    const newTime = audioRef.current.currentTime + offsetSeconds;
+    handleSeek(newTime);
+  }
+
   return (
     <div className="flex flex-col items-center justify-center gap-8 max-w-4xl mx-auto w-full py-10 relative">
       {/* Theme toggle button */}
@@ -675,7 +725,7 @@ export default function SmartVolume() {
                 className="peer inline-flex h-[24px] w-[44px] shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-50 data-[state=checked]:bg-primary data-[state=unchecked]:bg-gray-400 dark:data-[state=unchecked]:bg-gray-600"
               />
               <Label htmlFor="eq-toggle" className={`text-sm ${isEqEnabled ? 'text-[#ff6b6b] font-medium' : 'text-gray-600 dark:text-gray-400'} flex items-center gap-1.5`}>
-                <Waves className={`h-4 w-4 ${isEqEnabled ? 'text-[#ff6b6b]' : ''}`} /> Bass Boost
+                <Waves className={`h-4 w-4 ${isEqEnabled ? 'text-[#ff6b6b]' : ''}`} /> Vibe+
                 {isEqEnabled && <span className="inline-block h-2 w-2 rounded-full bg-[#ff6b6b] animate-pulse ml-1"></span>}
               </Label>
             </div>
@@ -902,7 +952,16 @@ export default function SmartVolume() {
             </div>
 
             {/* Progress bar */}
-            <div className="w-full bg-gray-300 dark:bg-[#ffcbc4]/20 h-1.5 rounded-full overflow-hidden">
+            <div 
+              className="w-full bg-gray-300 dark:bg-[#ffcbc4]/20 h-2.5 rounded-full overflow-hidden cursor-pointer relative"
+              onClick={(e) => {
+                // Calculate position click as percentage of total width
+                const rect = e.currentTarget.getBoundingClientRect();
+                const clickPosition = (e.clientX - rect.left) / rect.width;
+                const newTime = clickPosition * (audioDuration || 0);
+                handleSeek(newTime);
+              }}
+            >
               <motion.div
                 className="h-full bg-gray-600 dark:bg-[#ffcbc4]"
                 style={{
@@ -910,6 +969,48 @@ export default function SmartVolume() {
                 }}
                 transition={{ ease: "linear" }}
               />
+              <div 
+                className="absolute top-0 h-full w-full flex items-center"
+                style={{ justifyContent: "flex-start", paddingLeft: `calc(${(audioTime / (audioDuration || 1)) * 100}% - 4px)` }}
+              >
+                <div className="h-4 w-4 bg-gray-700 dark:bg-[#ff6b6b] rounded-full shadow-md"></div>
+              </div>
+            </div>
+
+            {/* Seek buttons */}
+            <div className="flex justify-center space-x-4">
+              <Button
+                onClick={() => seekOffset(-10)}
+                variant="outline"
+                size="sm"
+                className="rounded-full bg-gray-100 dark:bg-[#ffcbc4]/20 border-gray-300 dark:border-[#ffcbc4]/20 hover:bg-gray-200 dark:hover:bg-[#ffcbc4]/50 transition-all"
+              >
+                -10s
+              </Button>
+              <Button
+                onClick={() => seekOffset(-5)}
+                variant="outline"
+                size="sm"
+                className="rounded-full bg-gray-100 dark:bg-[#ffcbc4]/20 border-gray-300 dark:border-[#ffcbc4]/20 hover:bg-gray-200 dark:hover:bg-[#ffcbc4]/50 transition-all"
+              >
+                -5s
+              </Button>
+              <Button
+                onClick={() => seekOffset(5)}
+                variant="outline"
+                size="sm"
+                className="rounded-full bg-gray-100 dark:bg-[#ffcbc4]/20 border-gray-300 dark:border-[#ffcbc4]/20 hover:bg-gray-200 dark:hover:bg-[#ffcbc4]/50 transition-all"
+              >
+                +5s
+              </Button>
+              <Button
+                onClick={() => seekOffset(10)}
+                variant="outline"
+                size="sm"
+                className="rounded-full bg-gray-100 dark:bg-[#ffcbc4]/20 border-gray-300 dark:border-[#ffcbc4]/20 hover:bg-gray-200 dark:hover:bg-[#ffcbc4]/50 transition-all"
+              >
+                +10s
+              </Button>
             </div>
 
             {/* Value displays */}
